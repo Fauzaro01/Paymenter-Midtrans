@@ -159,10 +159,18 @@
             }
 
             if (existingScript) {
-                existingScript.addEventListener('load', setReady, { once: true });
-                existingScript.addEventListener('error', function () {
+                var onExistingLoad = function () {
+                    existingScript.removeEventListener('load', onExistingLoad);
+                    existingScript.removeEventListener('error', onExistingError);
+                    setReady();
+                };
+                var onExistingError = function () {
+                    existingScript.removeEventListener('load', onExistingLoad);
+                    existingScript.removeEventListener('error', onExistingError);
                     setError('Gagal memuat Midtrans Snap. Periksa koneksi lalu coba lagi.');
-                }, { once: true });
+                };
+                existingScript.addEventListener('load', onExistingLoad);
+                existingScript.addEventListener('error', onExistingError);
                 return;
             }
 
@@ -193,11 +201,6 @@
 
         ensureSnapLoaded();
 
-        console.log('Midtrans Payment Info:', {
-            orderId: "{{ $orderId }}",
-            amount: "{{ $formattedAmount }}",
-            invoiceId: invoiceId,
-            debugMode: {{ $debugMode ? 'true' : 'false' }}
-        });
-    })
+        console.log('Midtrans Payment Info: orderId={{ $orderId }}, amount={{ $formattedAmount }}, invoiceId=' + invoiceId + ', debugMode={{ $debugMode ? 'true' : 'false' }}');
+    });
 @endscript
