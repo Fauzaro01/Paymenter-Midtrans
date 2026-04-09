@@ -110,7 +110,11 @@
 
         var setError = function (message) {
             errorEl.classList.remove('d-none');
-            errorEl.innerHTML = '<div class="alert alert-danger mb-0">' + message + '</div>';
+            errorEl.textContent = '';
+            var alertBox = document.createElement('div');
+            alertBox.className = 'alert alert-danger mb-0';
+            alertBox.textContent = message;
+            errorEl.appendChild(alertBox);
             statusEl.classList.add('d-none');
             payBtn.disabled = true;
             retryBtn.classList.remove('d-none');
@@ -130,25 +134,30 @@
             }
 
             payBtn.disabled = true;
-            window.snap.pay("{{ $snapToken }}", {
-                onSuccess: function (result) {
-                    console.log('Payment Success:', result);
-                    window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=success";
-                },
-                onPending: function (result) {
-                    console.log('Payment Pending:', result);
-                    window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=pending";
-                },
-                onError: function (result) {
-                    console.error('Payment Error:', result);
-                    var errorMsg = (result && result.status_message) ? result.status_message : 'Pembayaran gagal. Silakan coba lagi.';
-                    setError(errorMsg);
-                },
-                onClose: function () {
-                    console.warn('Payment popup closed by user');
-                    payBtn.disabled = false;
+
+            var callbacks = new Object();
+            callbacks.onSuccess = function (result) {
+                console.log('Payment Success:', result);
+                window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=success";
+            };
+            callbacks.onPending = function (result) {
+                console.log('Payment Pending:', result);
+                window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=pending";
+            };
+            callbacks.onError = function (result) {
+                console.error('Payment Error:', result);
+                var errorMsg = 'Pembayaran gagal. Silakan coba lagi.';
+                if (result && result.status_message) {
+                    errorMsg = result.status_message;
                 }
-            });
+                setError(errorMsg);
+            };
+            callbacks.onClose = function () {
+                console.warn('Payment popup closed by user');
+                payBtn.disabled = false;
+            };
+
+            window.snap.pay("{{ $snapToken }}", callbacks);
         };
 
         var ensureSnapLoaded = function () {
