@@ -34,19 +34,19 @@
 </style>
 
 @script
-    (() => {
+    (function () {
         // Prevent duplicate init when Livewire re-renders
         if (window.__midtransSnapInitDone) return;
         window.__midtransSnapInitDone = true;
 
-        const loadingEl = document.getElementById('midtrans-loading');
+        var loadingEl = document.getElementById('midtrans-loading');
 
-        const showInitError = (message) => {
+        var showInitError = function (message) {
             if (!loadingEl) return;
-            loadingEl.innerHTML = `<div class="alert alert-danger">${message}</div>`;
+            loadingEl.innerHTML = '<div class="alert alert-danger">' + message + '</div>';
         };
 
-        const startSnapPayment = () => {
+        var startSnapPayment = function () {
             if (!window.snap) {
                 console.error('Snap object not found');
                 showInitError('Payment gateway failed to initialize. Please refresh and try again.');
@@ -66,7 +66,7 @@
                 },
                 onError: function(result) {
                     console.error('Payment Error:', result);
-                    const errorMsg = result.status_message || 'Payment failed. Please try again.';
+                    var errorMsg = result.status_message || 'Payment failed. Please try again.';
                     alert('Payment Error: ' + errorMsg);
                     window.history.back();
                 },
@@ -87,7 +87,7 @@
             return;
         }
 
-        const snapScript = document.createElement('script');
+        var snapScript = document.createElement('script');
         snapScript.src = "https://app{{ $debugMode ? '.sandbox' : '' }}.midtrans.com/snap/snap.js";
         snapScript.setAttribute('data-client-key', "{{ $clientKey }}");
         snapScript.async = true;
