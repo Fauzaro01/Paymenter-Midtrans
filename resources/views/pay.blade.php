@@ -94,122 +94,124 @@
 </style>
 
 @script
-    window.queueMicrotask(function () {
-        var invoiceId = "{{ $invoice->id }}";
-        var guardKey = '__midtransSnapInitDone_' + invoiceId;
-        if (window[guardKey]) return;
-        window[guardKey] = true;
+    eval(`
+        window.queueMicrotask(function () {
+            var invoiceId = "{{ $invoice->id }}";
+            var guardKey = '__midtransSnapInitDone_' + invoiceId;
+            if (window[guardKey]) return;
+            window[guardKey] = true;
 
-        var statusEl = document.getElementById('midtrans-status-' + invoiceId);
-        var errorEl = document.getElementById('midtrans-error-' + invoiceId);
-        var payBtn = document.getElementById('midtrans-pay-btn-' + invoiceId);
-        var retryBtn = document.getElementById('midtrans-retry-btn-' + invoiceId);
-        var backBtn = document.getElementById('midtrans-back-btn-' + invoiceId);
+            var statusEl = document.getElementById('midtrans-status-' + invoiceId);
+            var errorEl = document.getElementById('midtrans-error-' + invoiceId);
+            var payBtn = document.getElementById('midtrans-pay-btn-' + invoiceId);
+            var retryBtn = document.getElementById('midtrans-retry-btn-' + invoiceId);
+            var backBtn = document.getElementById('midtrans-back-btn-' + invoiceId);
 
-        if (!statusEl || !errorEl || !payBtn || !retryBtn || !backBtn) return;
+            if (!statusEl || !errorEl || !payBtn || !retryBtn || !backBtn) return;
 
-        var setError = function (message) {
-            errorEl.classList.remove('d-none');
-            errorEl.textContent = '';
-            var alertBox = document.createElement('div');
-            alertBox.className = 'alert alert-danger mb-0';
-            alertBox.textContent = message;
-            errorEl.appendChild(alertBox);
-            statusEl.classList.add('d-none');
-            payBtn.disabled = true;
-            retryBtn.classList.remove('d-none');
-        };
-
-        var setReady = function () {
-            statusEl.classList.add('d-none');
-            errorEl.classList.add('d-none');
-            payBtn.disabled = false;
-            retryBtn.classList.add('d-none');
-        };
-
-        var runPay = function () {
-            if (!window.snap) {
-                setError('Gateway belum siap. Klik "Coba Lagi" untuk memuat ulang.');
-                return;
-            }
-
-            payBtn.disabled = true;
-
-            var callbacks = new Object();
-            callbacks.onSuccess = function (result) {
-                console.log('Payment Success:', result);
-                window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=success";
+            var setError = function (message) {
+                errorEl.classList.remove('d-none');
+                errorEl.textContent = '';
+                var alertBox = document.createElement('div');
+                alertBox.className = 'alert alert-danger mb-0';
+                alertBox.textContent = message;
+                errorEl.appendChild(alertBox);
+                statusEl.classList.add('d-none');
+                payBtn.disabled = true;
+                retryBtn.classList.remove('d-none');
             };
-            callbacks.onPending = function (result) {
-                console.log('Payment Pending:', result);
-                window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=pending";
-            };
-            callbacks.onError = function (result) {
-                console.error('Payment Error:', result);
-                var errorMsg = 'Pembayaran gagal. Silakan coba lagi.';
-                if (result && result.status_message) {
-                    errorMsg = result.status_message;
-                }
-                setError(errorMsg);
-            };
-            callbacks.onClose = function () {
-                console.warn('Payment popup closed by user');
+
+            var setReady = function () {
+                statusEl.classList.add('d-none');
+                errorEl.classList.add('d-none');
                 payBtn.disabled = false;
+                retryBtn.classList.add('d-none');
             };
 
-            window.snap.pay("{{ $snapToken }}", callbacks);
-        };
+            var runPay = function () {
+                if (!window.snap) {
+                    setError('Gateway belum siap. Klik "Coba Lagi" untuk memuat ulang.');
+                    return;
+                }
 
-        var ensureSnapLoaded = function () {
-            var existingScript = document.querySelector('script[data-midtrans-snap="1"]');
-            if (window.snap) {
-                setReady();
-                return;
-            }
+                payBtn.disabled = true;
 
-            if (existingScript) {
-                var onExistingLoad = function () {
-                    existingScript.removeEventListener('load', onExistingLoad);
-                    existingScript.removeEventListener('error', onExistingError);
-                    setReady();
+                var callbacks = new Object();
+                callbacks.onSuccess = function (result) {
+                    console.log('Payment Success:', result);
+                    window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=success";
                 };
-                var onExistingError = function () {
-                    existingScript.removeEventListener('load', onExistingLoad);
-                    existingScript.removeEventListener('error', onExistingError);
+                callbacks.onPending = function (result) {
+                    console.log('Payment Pending:', result);
+                    window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=pending";
+                };
+                callbacks.onError = function (result) {
+                    console.error('Payment Error:', result);
+                    var errorMsg = 'Pembayaran gagal. Silakan coba lagi.';
+                    if (result && result.status_message) {
+                        errorMsg = result.status_message;
+                    }
+                    setError(errorMsg);
+                };
+                callbacks.onClose = function () {
+                    console.warn('Payment popup closed by user');
+                    payBtn.disabled = false;
+                };
+
+                window.snap.pay("{{ $snapToken }}", callbacks);
+            };
+
+            var ensureSnapLoaded = function () {
+                var existingScript = document.querySelector('script[data-midtrans-snap="1"]');
+                if (window.snap) {
+                    setReady();
+                    return;
+                }
+
+                if (existingScript) {
+                    var onExistingLoad = function () {
+                        existingScript.removeEventListener('load', onExistingLoad);
+                        existingScript.removeEventListener('error', onExistingError);
+                        setReady();
+                    };
+                    var onExistingError = function () {
+                        existingScript.removeEventListener('load', onExistingLoad);
+                        existingScript.removeEventListener('error', onExistingError);
+                        setError('Gagal memuat Midtrans Snap. Periksa koneksi lalu coba lagi.');
+                    };
+                    existingScript.addEventListener('load', onExistingLoad);
+                    existingScript.addEventListener('error', onExistingError);
+                    return;
+                }
+
+                var snapScript = document.createElement('script');
+                snapScript.src = "https://app{{ $debugMode ? '.sandbox' : '' }}.midtrans.com/snap/snap.js";
+                snapScript.setAttribute('data-client-key', "{{ $clientKey }}");
+                snapScript.setAttribute('data-midtrans-snap', '1');
+                snapScript.async = true;
+
+                snapScript.onload = setReady;
+                snapScript.onerror = function () {
                     setError('Gagal memuat Midtrans Snap. Periksa koneksi lalu coba lagi.');
                 };
-                existingScript.addEventListener('load', onExistingLoad);
-                existingScript.addEventListener('error', onExistingError);
-                return;
-            }
 
-            var snapScript = document.createElement('script');
-            snapScript.src = "https://app{{ $debugMode ? '.sandbox' : '' }}.midtrans.com/snap/snap.js";
-            snapScript.setAttribute('data-client-key', "{{ $clientKey }}");
-            snapScript.setAttribute('data-midtrans-snap', '1');
-            snapScript.async = true;
-
-            snapScript.onload = setReady;
-            snapScript.onerror = function () {
-                setError('Gagal memuat Midtrans Snap. Periksa koneksi lalu coba lagi.');
+                document.body.appendChild(snapScript);
             };
 
-            document.body.appendChild(snapScript);
-        };
+            payBtn.addEventListener('click', runPay);
+            retryBtn.addEventListener('click', function () {
+                statusEl.classList.remove('d-none');
+                errorEl.classList.add('d-none');
+                retryBtn.classList.add('d-none');
+                ensureSnapLoaded();
+            });
+            backBtn.addEventListener('click', function () {
+                window.history.back();
+            });
 
-        payBtn.addEventListener('click', runPay);
-        retryBtn.addEventListener('click', function () {
-            statusEl.classList.remove('d-none');
-            errorEl.classList.add('d-none');
-            retryBtn.classList.add('d-none');
             ensureSnapLoaded();
-        });
-        backBtn.addEventListener('click', function () {
-            window.history.back();
-        });
 
-        ensureSnapLoaded();
-
-        console.log('Midtrans Payment Info: orderId={{ $orderId }}, amount={{ $formattedAmount }}, invoiceId=' + invoiceId + ', debugMode={{ $debugMode ? 'true' : 'false' }}');
-    });
+            console.log('Midtrans Payment Info: orderId={{ $orderId }}, amount={{ $formattedAmount }}, invoiceId=' + invoiceId + ', debugMode={{ $debugMode ? 'true' : 'false' }}');
+        });
+    `);
 @endscript
