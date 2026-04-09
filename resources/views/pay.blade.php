@@ -34,8 +34,59 @@
 </style>
 
 @script
-    <script type="text/javascript">
-        // Load Midtrans Snap library
+    (() => {
+        // Prevent duplicate init when Livewire re-renders
+        if (window.__midtransSnapInitDone) return;
+        window.__midtransSnapInitDone = true;
+
+        const loadingEl = document.getElementById('midtrans-loading');
+
+        const showInitError = (message) => {
+            if (!loadingEl) return;
+            loadingEl.innerHTML = `<div class="alert alert-danger">${message}</div>`;
+        };
+
+        const startSnapPayment = () => {
+            if (!window.snap) {
+                console.error('Snap object not found');
+                showInitError('Payment gateway failed to initialize. Please refresh and try again.');
+                return;
+            }
+
+            if (loadingEl) loadingEl.style.display = 'none';
+
+            window.snap.pay("{{ $snapToken }}", {
+                onSuccess: function(result) {
+                    console.log('Payment Success:', result);
+                    window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=success";
+                },
+                onPending: function(result) {
+                    console.log('Payment Pending:', result);
+                    window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=pending";
+                },
+                onError: function(result) {
+                    console.error('Payment Error:', result);
+                    const errorMsg = result.status_message || 'Payment failed. Please try again.';
+                    alert('Payment Error: ' + errorMsg);
+                    window.history.back();
+                },
+                onClose: function() {
+                    console.warn('Payment popup closed by user');
+                    if (confirm('You closed the payment popup. Do you want to try again?')) {
+                        location.reload();
+                    } else {
+                        window.history.back();
+                    }
+                }
+            });
+        };
+
+        // Snap already loaded (possible after partial navigation)
+        if (window.snap) {
+            startSnapPayment();
+            return;
+        }
+
         const snapScript = document.createElement('script');
         snapScript.src = "https://app{{ $debugMode ? '.sandbox' : '' }}.midtrans.com/snap/snap.js";
         snapScript.setAttribute('data-client-key', "{{ $clientKey }}");
@@ -43,60 +94,17 @@
 
         snapScript.onerror = function() {
             console.error('Failed to load Midtrans Snap library');
-            document.getElementById('midtrans-loading').innerHTML = 
-                '<div class="alert alert-danger">Failed to load payment gateway. Please refresh and try again.</div>';
+            showInitError('Failed to load payment gateway. Please refresh and try again.');
         };
 
-        snapScript.onload = function() {
-            // Hide loading spinner
-            document.getElementById('midtrans-loading').style.display = 'none';
-
-            // Trigger Snap payment
-            if (window.snap) {
-                window.snap.pay("{{ $snapToken }}", {
-                    onSuccess: function(result) {
-                        console.log('Payment Success:', result);
-                        // Redirect to invoice with payment confirmation
-                        window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=success";
-                    },
-                    onPending: function(result) {
-                        console.log('Payment Pending:', result);
-                        // Redirect to invoice to check payment status
-                        window.location.href = "{{ route('invoices.show', $invoice) }}?checkPayment=true&midtrans=pending";
-                    },
-                    onError: function(result) {
-                        console.error('Payment Error:', result);
-                        // Show error message and provide retry option
-                        const errorMsg = result.status_message || 'Payment failed. Please try again.';
-                        alert('Payment Error: ' + errorMsg);
-                        window.history.back();
-                    },
-                    onClose: function() {
-                        console.warn('Payment popup closed by user');
-                        // User closed the popup without completing payment
-                        if (confirm('You closed the payment popup. Do you want to try again?')) {
-                            location.reload();
-                        } else {
-                            window.history.back();
-                        }
-                    }
-                });
-            } else {
-                console.error('Snap object not found');
-                document.getElementById('midtrans-loading').innerHTML = 
-                    '<div class="alert alert-danger">Payment gateway failed to initialize. Please refresh and try again.</div>';
-            }
-        };
-
-        // Append script to document
+        snapScript.onload = startSnapPayment;
         document.body.appendChild(snapScript);
 
-        // Debug info
         console.log('Midtrans Payment Info:', {
             orderId: "{{ $orderId }}",
             amount: "{{ $formattedAmount }}",
             invoiceId: "{{ $invoice->id }}",
             debugMode: {{ $debugMode ? 'true' : 'false' }}
         });
-    </script>
+    })();
 @endscript
