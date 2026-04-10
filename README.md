@@ -34,3 +34,11 @@ Notification URL			= https://yourdomain.com/extensions/midtrans/webhook
 Recurring payment notification URL	= https://yourdomain.com
 Account linking notification URL	= https://yourdomain.com
 ```
+
+Recommended notification URL (current route):
+
+```
+Notification URL = https://yourdomain.com/extensions/gateways/midtrans/webhook
+```
+
+Legacy URL `/extensions/midtrans/webhook` is also accepted for backward compatibility.

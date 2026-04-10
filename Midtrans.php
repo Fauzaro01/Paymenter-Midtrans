@@ -4,7 +4,6 @@ namespace Paymenter\Extensions\Gateways\Midtrans;
 
 use App\Classes\Extension\Gateway;
 use App\Helpers\ExtensionHelper;
-use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\View;
@@ -47,7 +46,7 @@ class Midtrans extends Gateway
     {
         return [
             'display_name' => 'Midtrans',
-            'version'      => '1.3.0',
+            'version'      => '1.3.1',
             'author'       => 'fauzaro01',
             'website'      => 'https://fauzaro.web.id'  ,
         ];
@@ -89,6 +88,13 @@ class Midtrans extends Gateway
                 'label' => 'Enable Sandbox Mode',
                 'type' => 'checkbox',
                 'description' => 'Use the Midtrans sandbox environment for testing.',
+                'required' => false,
+            ],
+            [
+                'name' => 'discord_webhook_url',
+                'label' => 'Discord Webhook URL',
+                'type' => 'text',
+                'description' => 'Optional. Send Midtrans gateway logs to Discord webhook.',
                 'required' => false,
             ],
         ];
@@ -162,7 +168,7 @@ class Midtrans extends Gateway
                 'Authorization' => 'Basic ' . base64_encode($serverKey . ':'),
             ];
 
-            \Log::info("Midtrans payment initiated", [
+            $this->gatewayLog('info', 'Midtrans payment initiated', [
                 'order_id' => $orderId,
                 'invoice_id' => $invoice->id,
                 'amount' => $total,
@@ -179,7 +185,7 @@ class Midtrans extends Gateway
             if ($response->failed() || !isset($json['token'])) {
                 $errorMessage = $json['error_message'] ?? 'Failed to create payment transaction';
                 
-                \Log::error("Midtrans API error", [
+                $this->gatewayLog('error', 'Midtrans API error', [
                     'order_id' => $orderId,
                     'status' => $response->status(),
                     'error' => $errorMessage,
@@ -208,10 +214,9 @@ class Midtrans extends Gateway
             ]);
 
         } catch (\Exception $e) {
-            \Log::error("Midtrans pay() exception", [
+            $this->gatewayLog('error', 'Midtrans pay() exception', [
                 'invoice_id' => $invoice->id,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
             ]);
 
             return view('gateways.midtrans::error', [
@@ -225,7 +230,7 @@ class Midtrans extends Gateway
         try {
             $data = $request->json()->all();
             
-            \Log::debug('Midtrans webhook received', [
+            $this->gatewayLog('debug', 'Midtrans webhook received', [
                 'order_id' => $data['order_id'] ?? null,
                 'transaction_status' => $data['transaction_status'] ?? null,
                 'status_code' => $data['status_code'] ?? null,
@@ -233,7 +238,9 @@ class Midtrans extends Gateway
 
             // Validate required fields
             if (!isset($data['order_id'], $data['transaction_status'], $data['status_code'])) {
-                \Log::warning("Midtrans webhook: Missing required fields");
+                $this->gatewayLog('warning', 'Midtrans webhook: Missing required fields', [
+                    'payload' => $data,
+                ]);
                 return response('Missing required fields', 400);
             }
 
@@ -242,7 +249,7 @@ class Midtrans extends Gateway
 
             // Only process successful transactions (status 200 with capture or settlement)
             if ($statusCode !== "200" || !in_array($transactionStatus, ['capture', 'settlement'])) {
-                \Log::info("Midtrans webhook: Ignoring non-successful transaction", [
+                $this->gatewayLog('info', 'Midtrans webhook: Ignoring non-successful transaction', [
                     'status_code' => $statusCode,
                     'transaction_status' => $transactionStatus,
                     'order_id' => $data['order_id'],
@@ -250,18 +257,20 @@ class Midtrans extends Gateway
                 return response('OK', 200); // Return 200 to acknowledge receipt
             }
 
-            // Parse order ID (format: PAYMENTER-{invoice_id}-{hash})
-            $orderIdParts = explode('-', $data['order_id']);
-            if (count($orderIdParts) < 2) {
-                \Log::warning("Midtrans webhook: Invalid order_id format", ['order_id' => $data['order_id']]);
-                return response('Invalid order_id format', 400);
+            // Parse order ID safely. Supports PAYMENTER-{invoice_id}-{hash}.
+            // For external/test payloads with unknown format, acknowledge with 200 to avoid retries.
+            $invoiceId = $this->extractInvoiceIdFromOrderId((string) $data['order_id']);
+            if (!$invoiceId) {
+                $this->gatewayLog('warning', 'Midtrans webhook: Unknown order_id format, acknowledged without payment record', [
+                    'order_id' => $data['order_id'],
+                    'transaction_id' => $data['transaction_id'] ?? null,
+                ]);
+                return response('OK', 200);
             }
-
-            $invoiceId = (int) $orderIdParts[1];
 
             // Validate amount and transaction ID
             if (!isset($data['gross_amount'], $data['transaction_id'])) {
-                \Log::warning("Midtrans webhook: Missing amount or transaction_id", [
+                $this->gatewayLog('warning', 'Midtrans webhook: Missing amount or transaction_id', [
                     'order_id' => $data['order_id'],
                 ]);
                 return response('Missing amount or transaction_id', 400);
@@ -272,14 +281,14 @@ class Midtrans extends Gateway
 
             // Additional validation
             if ($invoiceId <= 0 || $amount <= 0) {
-                \Log::warning("Midtrans webhook: Invalid invoice_id or amount", [
+                $this->gatewayLog('warning', 'Midtrans webhook: Invalid invoice_id or amount', [
                     'invoice_id' => $invoiceId,
                     'amount' => $amount,
                 ]);
                 return response('Invalid amount or invoice_id', 400);
             }
 
-            \Log::info("Midtrans webhook: Processing payment", [
+            $this->gatewayLog('info', 'Midtrans webhook: Processing payment', [
                 'invoice_id' => $invoiceId,
                 'amount' => $amount,
                 'transaction_id' => $transactionId,
@@ -289,7 +298,7 @@ class Midtrans extends Gateway
             // Record payment in Paymenter
             ExtensionHelper::addPayment($invoiceId, 'Midtrans', $amount, null, $transactionId);
 
-            \Log::info("Midtrans webhook: Payment recorded successfully", [
+            $this->gatewayLog('info', 'Midtrans webhook: Payment recorded successfully', [
                 'invoice_id' => $invoiceId,
                 'transaction_id' => $transactionId,
             ]);
@@ -297,11 +306,66 @@ class Midtrans extends Gateway
             return response('OK', 200);
 
         } catch (\Exception $e) {
-            \Log::error("Midtrans webhook exception", [
+            $this->gatewayLog('error', 'Midtrans webhook exception', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
             ]);
             return response('Internal Server Error', 500);
+        }
+    }
+
+    /**
+     * Extract invoice id from Midtrans order_id.
+     * Expected primary format: PAYMENTER-{invoice_id}-{hash}
+     */
+    private function extractInvoiceIdFromOrderId(string $orderId): ?int
+    {
+        if (preg_match('/^PAYMENTER-(\d+)-/i', $orderId, $matches)) {
+            return (int) $matches[1];
+        }
+
+        return null;
+    }
+
+    /**
+     * Custom gateway logger. Sends logs to Discord webhook if configured.
+     */
+    private function gatewayLog(string $level, string $message, array $context = []): void
+    {
+        try {
+            $webhookUrl = (string) $this->config('discord_webhook_url');
+            if (empty($webhookUrl)) {
+                return;
+            }
+
+            $contextJson = empty($context)
+                ? '-'
+                : substr(json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 0, 1800);
+
+            $colorByLevel = [
+                'debug' => 9807270,
+                'info' => 3447003,
+                'warning' => 16776960,
+                'error' => 15158332,
+            ];
+
+            Http::timeout(10)->post($webhookUrl, [
+                'username' => 'Midtrans Gateway',
+                'embeds' => [
+                    [
+                        'title' => '[' . strtoupper($level) . '] ' . $message,
+                        'color' => $colorByLevel[$level] ?? 7506394,
+                        'fields' => [
+                            [
+                                'name' => 'Context',
+                                'value' => '```json' . "\n" . $contextJson . "\n" . '```',
+                            ],
+                        ],
+                        'timestamp' => now()->toIso8601String(),
+                    ],
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            // Do not throw from logger.
         }
     }
 
