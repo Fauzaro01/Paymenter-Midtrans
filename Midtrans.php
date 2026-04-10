@@ -305,6 +305,14 @@ class Midtrans extends Gateway
         }
     }
 
+    public function version()
+    {
+        return response()->json([
+            'version' => $this->getMetadata()['version'] ?? 'unknown',
+            'date' => now()->toDateTimeString(),
+        ]);
+    }
+
     /**
      * Check if this gateway can be used for a specific transaction
      * Validates currency (IDR only) and minimum amount (IDR 5,000)
